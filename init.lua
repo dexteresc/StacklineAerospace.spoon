@@ -195,26 +195,25 @@ function obj:_runQuery()
   end
   self._inFlight = true
 
-  local rows, focused, gotList, gotFocused = nil, nil, false, false
-  local function maybeApply()
-    if not (gotList and gotFocused) then return end
+  local fmt = "%{window-id}|%{app-name}|%{window-parent-container-layout}"
+  local rows
+  local function onFocused(_, stdout, _)
     self._inFlight = false
-    self:_apply(rows, focused)
+    self:_apply(rows or {}, trim(stdout or ""))
     if self._pending then
       self._pending = false
       self:_schedule()
     end
   end
-
-  local fmt = "%{window-id}|%{app-name}|%{window-parent-container-layout}"
-  self._listTask = hs.task.new(self.aerospace, function(_, stdout, _)
-    rows = parseList(stdout); gotList = true; maybeApply()
-  end, { "list-windows", "--workspace", "focused", "--format", fmt })
-  self._focusedTask = hs.task.new(self.aerospace, function(_, stdout, _)
-    focused = trim(stdout or ""); gotFocused = true; maybeApply()
-  end, { "list-windows", "--focused", "--format", "%{window-id}" })
+  local function onList(_, stdout, _)
+    rows = parseList(stdout)
+    self._focusedTask = hs.task.new(self.aerospace, onFocused,
+      { "list-windows", "--focused", "--format", "%{window-id}" })
+    self._focusedTask:start()
+  end
+  self._listTask = hs.task.new(self.aerospace, onList,
+    { "list-windows", "--workspace", "focused", "--format", fmt })
   self._listTask:start()
-  self._focusedTask:start()
 end
 
 function obj:_schedule()

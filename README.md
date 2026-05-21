@@ -57,15 +57,27 @@ spoon.StacklineAerospace:start()
 
 ## How it works
 
-Subscribes to Hammerspoon's window filter for focus/move/create/destroy events and polls `aerospace list-windows --workspace focused` asynchronously (via `hs.task`) on change. Groups consecutive windows whose parent layout is `h_accordion` or `v_accordion` into stacks, sorts them by frame position, then draws pills near the top-left of the focused window.
+The interesting part is that AeroSpace's CLI does not expose a window's position within its parent container. `aerospace list-windows` returns rows sorted alphabetically by `(app name, window title)`, and no `%{...}` format variable exists for tree, DFS, or sibling index. That means an external tool has no direct way to ask AeroSpace "where in the stack is this window?"
 
-If you have an AeroSpace `outer.top` / `outer.left` gap large enough to fit the indicator, it'll float in that gap automatically (above for h_accordion, left for v_accordion). Otherwise it falls back to inside the window's corner.
+This Spoon recovers visual order indirectly. On each window event it:
 
-## Limitations
+1. Runs `aerospace list-windows --workspace focused` (async, via `hs.task`) to enumerate windows and their parent-container layouts.
+2. Runs `aerospace list-windows --focused` (a second async call) to ask AeroSpace which window has focus — `hs.window.focusedWindow()` doesn't always agree with AeroSpace for same-app windows.
+3. Groups consecutive rows whose parent layout is `h_accordion` or `v_accordion` into stacks.
+4. For each stack, looks up every member's screen coordinates via `hs.window.get(id):frame()` and sorts by x (h_accordion) or y (v_accordion). The Hammerspoon window IDs match AeroSpace's `window-id`, which is the macOS CGWindowID.
+5. Draws a small rounded backdrop with one pill per stack member, anchored just outside the focused window's edge if there is room (above for h_accordion, left for v_accordion) or otherwise inside its top-left corner. Position recomputes on each render so the indicator follows window resizes and workspace switches.
 
-- **Requires `accordion-padding >= 1`.** AeroSpace's CLI doesn't expose tree position for a window, so visual order is recovered from each window's accessibility frame coordinates. With `accordion-padding = 0`, sibling windows share identical coordinates and the order can't be recovered. A value of `1` gives an effectively-invisible peek that's still enough to sort by.
-- Multiple sibling accordion containers in the same workspace visually merge into one indicator strip; AeroSpace doesn't expose container identifiers to disambiguate them.
-- No per-window app icons.
+Window events are coalesced through a 60ms debounce (`debounceMs`), and a 2-second timer (`pollInterval`) catches anything the window filter missed.
+
+## Limitations and tradeoffs
+
+- **Requires `accordion-padding >= 1` in `~/.aerospace.toml`.** Step 4 above is the key: visual order is inferred from each window's pixel coordinates. With `accordion-padding = 0`, every sibling in an accordion shares the exact same frame, so there is no signal to sort by and the highlighted pill no longer corresponds to the focused window. A value of `1` gives an effectively-invisible peek that the Spoon can still sort against; higher values are fine too if you like the peek.
+- **Outside-the-window placement needs an outer gap on the relevant axis.** If you set `outer.top` or `outer.left` in AeroSpace's `[gaps]` block to a value ≥ backdrop size + `edgeMargin`, the indicator floats in that empty strip (top for h_accordion, left for v_accordion). Otherwise it falls back to drawing inside the focused window's top-left corner, overlapping a small amount of content. AeroSpace gaps are static and global, so this is an all-or-nothing tradeoff per axis — they cannot be made layout- or workspace-conditional.
+- **Multiple sibling accordion containers in the same workspace visually merge into one indicator strip.** AeroSpace exposes no container ID, so the Spoon can't distinguish separate accordion groups that happen to be adjacent in the listing.
+- **No per-window app icons.** Stackline-for-yabai shows app icons in its pills; that would require a separate AeroSpace-id ↔ AX-window mapping and is not implemented here.
+- **Two `aerospace` shell-outs per event (~30-50ms each).** A previous parallel-task attempt sometimes left one of the callbacks unfired, stalling the in-flight guard and freezing updates; the sequential version is reliable. If event latency becomes noticeable, the cheaper wins are higher `debounceMs` and a less aggressive event filter.
+- **Window filter intentionally drops `windowMoved`.** It fired on every drag/resize/re-layout pixel and the indicator already updates from focused/created/destroyed events plus the polling fallback. If you have a use case where moves matter, re-add it in `start()`.
+- **Same-app focus tracking depends on AeroSpace's own focused-window query.** `hs.window.focusedWindow()` can lag or pick the wrong window when an app has multiple windows in one stack; that is why step 2 above is a separate `aerospace` call rather than a Hammerspoon lookup.
 
 ## License
 
