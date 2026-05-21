@@ -2,7 +2,7 @@
 
 Stack-position indicators for [AeroSpace](https://github.com/nikitabobko/AeroSpace) accordion containers, inspired by [stackline](https://github.com/AdamWagner/stackline) (which is yabai-only).
 
-Draws small pills just outside the focused window (above the top edge for horizontal accordions, left of the left edge for vertical) showing how many windows are in its stack and which one is focused.
+Draws small pills near the top-left of the focused window showing how many windows are in its accordion stack and which one is focused.
 
 ## Requirements
 
@@ -56,7 +56,9 @@ spoon.StacklineAerospace:start()
 
 ## How it works
 
-Subscribes to Hammerspoon's window filter for focus/move/create/destroy events and polls `aerospace list-windows --workspace focused` asynchronously (via `hs.task`) on change. Groups consecutive windows whose parent layout is `h_accordion` or `v_accordion` into stacks, sorts them by frame position, then draws pills just outside the focused window's edge (above for horizontal, left for vertical).
+Subscribes to Hammerspoon's window filter for focus/move/create/destroy events and polls `aerospace list-windows --workspace focused` asynchronously (via `hs.task`) on change. Groups consecutive windows whose parent layout is `h_accordion` or `v_accordion` into stacks, sorts them by frame position, then draws pills near the top-left of the focused window.
+
+If you have an AeroSpace `outer.top` / `outer.left` gap large enough to fit the indicator, it'll float in that gap automatically (above for h_accordion, left for v_accordion). Otherwise it falls back to inside the window's corner.
 
 ## Limitations
 

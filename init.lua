@@ -25,9 +25,9 @@ obj.focusedColor         = { red = 0.95, green = 0.95, blue = 0.95, alpha = 1.00
 obj.unfocusedColor       = { red = 0.95, green = 0.95, blue = 0.95, alpha = 0.35 }
 
 -- Internal state
-obj._canvas      = nil
-obj._timer       = nil
-obj._wf          = nil
+obj._canvas = nil
+obj._timer  = nil
+obj._wf     = nil
 obj._debounce    = nil
 obj._listTask    = nil
 obj._focusedTask = nil
@@ -135,13 +135,26 @@ function obj:_render(stack, idx)
 
   local backdropW = stripW + 2 * pad
   local backdropH = stripH + 2 * pad
+  local visible = win:screen():frame()
   local backdropX, backdropY
   if vertical then
-    backdropX = f.x - backdropW - self.cornerInset
-    backdropY = f.y + self.cornerInset
+    local gap = f.x - visible.x
+    if gap >= backdropW + self.pillGap then
+      backdropX = visible.x + (gap - backdropW) / 2
+      backdropY = f.y + self.cornerInset
+    else
+      backdropX = f.x + self.cornerInset
+      backdropY = f.y + self.cornerInset
+    end
   else
-    backdropX = f.x + self.cornerInset
-    backdropY = f.y - backdropH - self.cornerInset
+    local gap = f.y - visible.y
+    if gap >= backdropH + self.pillGap then
+      backdropX = f.x + self.cornerInset
+      backdropY = visible.y + (gap - backdropH) / 2
+    else
+      backdropX = f.x + self.cornerInset
+      backdropY = f.y + self.cornerInset
+    end
   end
 
   local screen = win:screen():fullFrame()
