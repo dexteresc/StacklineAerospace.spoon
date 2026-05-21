@@ -18,6 +18,7 @@ obj.pillThickness        = 3    -- short dimension of each pill
 obj.pillLength           = 14   -- long dimension of each pill
 obj.pillGap              = 4    -- gap between pills
 obj.cornerInset          = 10   -- offset of the backdrop from the focused window's corner
+obj.edgeMargin           = 4    -- minimum space required between the indicator and the window edge
 obj.backdropPadding      = 5    -- padding between the pills and the backdrop edge
 obj.backdropCornerRadius = 4
 obj.backdropColor        = { red = 0.00, green = 0.00, blue = 0.00, alpha = 0.40 }
@@ -28,10 +29,11 @@ obj.unfocusedColor       = { red = 0.95, green = 0.95, blue = 0.95, alpha = 0.35
 obj._canvas      = nil
 obj._timer       = nil
 obj._wf          = nil
-obj._focusedTask = nil
 obj._debounce    = nil
 obj._listTask    = nil
+obj._focusedTask = nil
 obj._inFlight    = false
+obj._pending     = false
 obj._lastKey     = nil
 
 local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
@@ -120,9 +122,7 @@ function obj:_render(stack, idx)
   local win = hs.window.focusedWindow()
   if not win then return end
   local f = win:frame()
-  local s = win:screen()
-  local visible = s:frame()
-  local screen  = s:fullFrame()
+  local visible = win:screen():frame()
 
   local n        = #stack.windows
   local vertical = (stack.layout == "v_accordion")
@@ -138,57 +138,40 @@ function obj:_render(stack, idx)
 
   local backdropW = stripW + 2 * pad
   local backdropH = stripH + 2 * pad
-  local backdropX, backdropY
+
+  local backdropX = f.x + self.cornerInset
+  local backdropY = f.y + self.cornerInset
   if vertical then
-    local roomLeft = f.x - visible.x
-    if roomLeft >= backdropW + self.pillGap then
-      backdropX = visible.x + (roomLeft - backdropW) / 2
-      backdropY = f.y + self.cornerInset
-    else
-      backdropX = f.x + self.cornerInset
-      backdropY = f.y + self.cornerInset
+    local room = f.x - visible.x
+    if room >= backdropW + self.edgeMargin then
+      backdropX = visible.x + (room - backdropW) / 2
     end
   else
-    local roomTop = f.y - visible.y
-    if roomTop >= backdropH + self.pillGap then
-      backdropX = f.x + self.cornerInset
-      backdropY = visible.y + (roomTop - backdropH) / 2
-    else
-      backdropX = f.x + self.cornerInset
-      backdropY = f.y + self.cornerInset
+    local room = f.y - visible.y
+    if room >= backdropH + self.edgeMargin then
+      backdropY = visible.y + (room - backdropH) / 2
     end
   end
-  self._canvas = hs.canvas.new(screen)
 
+  self._canvas = hs.canvas.new({ x = backdropX, y = backdropY, w = backdropW, h = backdropH })
   self._canvas:appendElements({
     type             = "rectangle",
     action           = "fill",
     fillColor        = self.backdropColor,
     roundedRectRadii = { xRadius = self.backdropCornerRadius, yRadius = self.backdropCornerRadius },
-    frame            = {
-      x = backdropX - screen.x,
-      y = backdropY - screen.y,
-      w = backdropW,
-      h = backdropH,
-    },
+    frame            = { x = 0, y = 0, w = backdropW, h = backdropH },
   })
 
   for i = 1, n do
     local color = (i == idx) and self.focusedColor or self.unfocusedColor
-    local px, py
-    if vertical then
-      px = backdropX + pad
-      py = backdropY + pad + (i - 1) * (pillH + gap)
-    else
-      px = backdropX + pad + (i - 1) * (pillW + gap)
-      py = backdropY + pad
-    end
+    local px = vertical and pad or pad + (i - 1) * (pillW + gap)
+    local py = vertical and pad + (i - 1) * (pillH + gap) or pad
     self._canvas:appendElements({
       type             = "rectangle",
       action           = "fill",
       fillColor        = color,
       roundedRectRadii = { xRadius = thick / 2, yRadius = thick / 2 },
-      frame            = { x = px - screen.x, y = py - screen.y, w = pillW, h = pillH },
+      frame            = { x = px, y = py, w = pillW, h = pillH },
     })
   end
 
@@ -206,24 +189,32 @@ function obj:_apply(rows, focused)
 end
 
 function obj:_runQuery()
-  if self._inFlight then return end
+  if self._inFlight then
+    self._pending = true
+    return
+  end
   self._inFlight = true
 
-  local fmt = "%{window-id}|%{app-name}|%{window-parent-container-layout}"
-  local rows
-  local function onFocused(_, stdout, _)
+  local rows, focused, gotList, gotFocused = nil, nil, false, false
+  local function maybeApply()
+    if not (gotList and gotFocused) then return end
     self._inFlight = false
-    self:_apply(rows or {}, trim(stdout or ""))
+    self:_apply(rows, focused)
+    if self._pending then
+      self._pending = false
+      self:_schedule()
+    end
   end
-  local function onList(_, stdout, _)
-    rows = parseList(stdout)
-    self._focusedTask = hs.task.new(self.aerospace, onFocused,
-      { "list-windows", "--focused", "--format", "%{window-id}" })
-    self._focusedTask:start()
-  end
-  self._listTask = hs.task.new(self.aerospace, onList,
-    { "list-windows", "--workspace", "focused", "--format", fmt })
+
+  local fmt = "%{window-id}|%{app-name}|%{window-parent-container-layout}"
+  self._listTask = hs.task.new(self.aerospace, function(_, stdout, _)
+    rows = parseList(stdout); gotList = true; maybeApply()
+  end, { "list-windows", "--workspace", "focused", "--format", fmt })
+  self._focusedTask = hs.task.new(self.aerospace, function(_, stdout, _)
+    focused = trim(stdout or ""); gotFocused = true; maybeApply()
+  end, { "list-windows", "--focused", "--format", "%{window-id}" })
   self._listTask:start()
+  self._focusedTask:start()
 end
 
 function obj:_schedule()
@@ -242,7 +233,6 @@ function obj:start()
   self._wf:subscribe({
     hs.window.filter.windowFocused,
     hs.window.filter.windowUnfocused,
-    hs.window.filter.windowMoved,
     hs.window.filter.windowCreated,
     hs.window.filter.windowDestroyed,
   }, function() self:_schedule() end)
@@ -251,11 +241,13 @@ function obj:start()
 end
 
 function obj:stop()
-  if self._timer    then self._timer:stop();        self._timer    = nil end
-  if self._debounce then self._debounce:stop();     self._debounce = nil end
-  if self._wf       then self._wf:unsubscribeAll(); self._wf       = nil end
-  if self._canvas   then self._canvas:delete();     self._canvas   = nil end
-  self._listTask, self._focusedTask, self._inFlight, self._lastKey = nil, nil, false, nil
+  if self._timer       then self._timer:stop();        self._timer       = nil end
+  if self._debounce    then self._debounce:stop();     self._debounce    = nil end
+  if self._wf          then self._wf:unsubscribeAll(); self._wf          = nil end
+  if self._canvas      then self._canvas:delete();     self._canvas      = nil end
+  if self._listTask    then pcall(self._listTask.terminate, self._listTask);    self._listTask    = nil end
+  if self._focusedTask then pcall(self._focusedTask.terminate, self._focusedTask); self._focusedTask = nil end
+  self._inFlight, self._pending, self._lastKey = false, false, nil
   return self
 end
 

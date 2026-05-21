@@ -48,6 +48,7 @@ spoon.StacklineAerospace:start()
 | `pillLength` | `14` | pill long dimension |
 | `pillGap` | `4` | gap between pills |
 | `cornerInset` | `10` | gap between the indicator and the window edge |
+| `edgeMargin` | `4` | minimum space required between the indicator and the window edge before it floats outside |
 | `backdropPadding` | `5` | padding inside the backdrop |
 | `backdropCornerRadius` | `4` | |
 | `backdropColor` | dark, ~40% alpha | backdrop fill |
