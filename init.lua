@@ -25,12 +25,12 @@ obj.focusedColor         = { red = 0.95, green = 0.95, blue = 0.95, alpha = 1.00
 obj.unfocusedColor       = { red = 0.95, green = 0.95, blue = 0.95, alpha = 0.35 }
 
 -- Internal state
-obj._canvas = nil
-obj._timer  = nil
-obj._wf     = nil
+obj._canvas      = nil
+obj._timer       = nil
+obj._wf          = nil
+obj._focusedTask = nil
 obj._debounce    = nil
 obj._listTask    = nil
-obj._focusedTask = nil
 obj._inFlight    = false
 obj._lastKey     = nil
 
@@ -120,6 +120,9 @@ function obj:_render(stack, idx)
   local win = hs.window.focusedWindow()
   if not win then return end
   local f = win:frame()
+  local s = win:screen()
+  local visible = s:frame()
+  local screen  = s:fullFrame()
 
   local n        = #stack.windows
   local vertical = (stack.layout == "v_accordion")
@@ -135,29 +138,26 @@ function obj:_render(stack, idx)
 
   local backdropW = stripW + 2 * pad
   local backdropH = stripH + 2 * pad
-  local visible = win:screen():frame()
   local backdropX, backdropY
   if vertical then
-    local gap = f.x - visible.x
-    if gap >= backdropW + self.pillGap then
-      backdropX = visible.x + (gap - backdropW) / 2
+    local roomLeft = f.x - visible.x
+    if roomLeft >= backdropW + self.pillGap then
+      backdropX = visible.x + (roomLeft - backdropW) / 2
       backdropY = f.y + self.cornerInset
     else
       backdropX = f.x + self.cornerInset
       backdropY = f.y + self.cornerInset
     end
   else
-    local gap = f.y - visible.y
-    if gap >= backdropH + self.pillGap then
+    local roomTop = f.y - visible.y
+    if roomTop >= backdropH + self.pillGap then
       backdropX = f.x + self.cornerInset
-      backdropY = visible.y + (gap - backdropH) / 2
+      backdropY = visible.y + (roomTop - backdropH) / 2
     else
       backdropX = f.x + self.cornerInset
       backdropY = f.y + self.cornerInset
     end
   end
-
-  local screen = win:screen():fullFrame()
   self._canvas = hs.canvas.new(screen)
 
   self._canvas:appendElements({
