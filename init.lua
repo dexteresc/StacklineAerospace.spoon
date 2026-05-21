@@ -135,8 +135,14 @@ function obj:_render(stack, idx)
 
   local backdropW = stripW + 2 * pad
   local backdropH = stripH + 2 * pad
-  local backdropX = f.x + self.cornerInset
-  local backdropY = f.y + self.cornerInset
+  local backdropX, backdropY
+  if vertical then
+    backdropX = f.x - backdropW - self.cornerInset
+    backdropY = f.y + self.cornerInset
+  else
+    backdropX = f.x + self.cornerInset
+    backdropY = f.y - backdropH - self.cornerInset
+  end
 
   local screen = win:screen():fullFrame()
   self._canvas = hs.canvas.new(screen)
