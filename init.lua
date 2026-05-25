@@ -33,8 +33,14 @@ obj._debounce    = nil
 obj._listTask    = nil
 obj._focusedTask = nil
 obj._inFlight    = false
+obj._inFlightAt  = nil  -- monotonic time the in-flight query started; used to detect stuck queries
 obj._pending     = false
 obj._lastKey     = nil
+
+-- Time in seconds after which an in-flight query is considered stale and force-reset.
+-- This protects against `hs.task` callbacks that never fire, which can happen if the
+-- `aerospace` daemon is briefly unreachable (e.g. immediately after a system reboot).
+obj.queryTimeoutSeconds = 5
 
 local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 
@@ -190,15 +196,21 @@ end
 
 function obj:_runQuery()
   if self._inFlight then
-    self._pending = true
-    return
+    if self._inFlightAt and hs.timer.secondsSinceEpoch() - self._inFlightAt > self.queryTimeoutSeconds then
+      self._inFlight = false  -- stuck query (e.g. aerospace daemon unreachable); recover
+    else
+      self._pending = true
+      return
+    end
   end
   self._inFlight = true
+  self._inFlightAt = hs.timer.secondsSinceEpoch()
 
   local fmt = "%{window-id}|%{app-name}|%{window-parent-container-layout}"
   local rows
   local function onFocused(_, stdout, _)
     self._inFlight = false
+    self._inFlightAt = nil
     self:_apply(rows or {}, trim(stdout or ""))
     if self._pending then
       self._pending = false
@@ -246,7 +258,7 @@ function obj:stop()
   if self._canvas      then self._canvas:delete();     self._canvas      = nil end
   if self._listTask    then pcall(self._listTask.terminate, self._listTask);    self._listTask    = nil end
   if self._focusedTask then pcall(self._focusedTask.terminate, self._focusedTask); self._focusedTask = nil end
-  self._inFlight, self._pending, self._lastKey = false, false, nil
+  self._inFlight, self._inFlightAt, self._pending, self._lastKey = false, nil, false, nil
   return self
 end
 
