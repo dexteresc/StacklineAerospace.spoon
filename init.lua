@@ -36,11 +36,17 @@ obj._inFlight    = false
 obj._inFlightAt  = nil  -- monotonic time the in-flight query started; used to detect stuck queries
 obj._pending     = false
 obj._lastKey     = nil
+obj._ready       = false  -- gated by startup grace; _schedule no-ops until true
+obj._readyTimer  = nil
 
 -- Time in seconds after which an in-flight query is considered stale and force-reset.
 -- This protects against `hs.task` callbacks that never fire, which can happen if the
 -- `aerospace` daemon is briefly unreachable (e.g. immediately after a system reboot).
 obj.queryTimeoutSeconds = 5
+
+-- After `start()`, ignore window events and the polling timer for this long so the
+-- `aerospace` daemon can finish coming up if Hammerspoon won the boot race.
+obj.startupGraceSeconds = 2
 
 local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 
@@ -229,6 +235,7 @@ function obj:_runQuery()
 end
 
 function obj:_schedule()
+  if not self._ready then return end
   if not self._debounce then
     self._debounce = hs.timer.delayed.new(self.debounceMs / 1000, function()
       self:_runQuery()
@@ -247,18 +254,23 @@ function obj:start()
     hs.window.filter.windowCreated,
     hs.window.filter.windowDestroyed,
   }, function() self:_schedule() end)
-  self:_schedule()
+  self._readyTimer = hs.timer.doAfter(self.startupGraceSeconds, function()
+    self._ready = true
+    self._readyTimer = nil
+    self:_schedule()
+  end)
   return self
 end
 
 function obj:stop()
   if self._timer       then self._timer:stop();        self._timer       = nil end
+  if self._readyTimer  then self._readyTimer:stop();   self._readyTimer  = nil end
   if self._debounce    then self._debounce:stop();     self._debounce    = nil end
   if self._wf          then self._wf:unsubscribeAll(); self._wf          = nil end
   if self._canvas      then self._canvas:delete();     self._canvas      = nil end
   if self._listTask    then pcall(self._listTask.terminate, self._listTask);    self._listTask    = nil end
   if self._focusedTask then pcall(self._focusedTask.terminate, self._focusedTask); self._focusedTask = nil end
-  self._inFlight, self._inFlightAt, self._pending, self._lastKey = false, nil, false, nil
+  self._inFlight, self._inFlightAt, self._pending, self._lastKey, self._ready = false, nil, false, nil, false
   return self
 end
 
